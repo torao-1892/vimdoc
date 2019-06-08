@@ -1,7 +1,7 @@
 """Vim helpfile outputter."""
+import io
 import os
 import textwrap
-import warnings
 
 import vimdoc
 from vimdoc import error
@@ -25,7 +25,9 @@ class Helpfile(object):
 
   def Write(self):
     filename = os.path.join(self.docdir, self.Filename())
-    with open(filename, 'w') as self.file:
+    # Output POSIX line endings for portable output that can be published.
+    # They are displayed properly in vim on all platforms.
+    with io.open(filename, 'w', encoding='utf-8', newline='\n') as self.file:
       self.WriteHeader()
       self.WriteTableOfContents()
       for chunk in self.module.Chunks():
@@ -35,12 +37,14 @@ class Helpfile(object):
   def WriteHeader(self):
     """Writes a plugin header."""
     # The first line should conform to ':help write-local-help', with a tag for
-    # the filename followed by a tab and the tagline (if present).
+    # the filename followed by a tab and the tagline (if present). Line 1 will
+    # not be wrapped at WIDTH since the first line has special semantics.
     line = self.Tag(self.Filename())
     if self.module.plugin.tagline:
       line = '{}\t{}'.format(line, self.module.plugin.tagline)
-    # Use Print directly vs. WriteLine so tab isn't expanded by TextWrapper.
-    self.Print(line)
+    # Use Print directly vs. WriteLine so tab isn't expanded by TextWrapper, and
+    # to bypass line wrapping at WIDTH.
+    self.Print(line, wide=True)
     # Next write a line with the author (if present) and tags.
     tag = self.Tag(self.module.name)
     if self.module.plugin.stylization:
@@ -51,16 +55,33 @@ class Helpfile(object):
       self.WriteLine(right=tag)
     self.WriteLine()
 
+  # Helper function for WriteTableOfContents().
+  def _EnumerateIndices(self, sections):
+    """Keep track of section numbering for each level of the tree"""
+    count = [{'level': 0, 'index': 0}]
+    for block in sections:
+      assert 'id' in block.locals
+      assert 'name' in block.locals
+      level = block.locals['level']
+      while level < count[-1]['level']:
+        count.pop()
+      if level == count[-1]['level']:
+        count[-1]['index'] += 1
+      else:
+        count.append({'level': level, 'index': 1})
+      yield (count[-1]['index'], block)
+
   def WriteTableOfContents(self):
     """Writes the table of contents."""
     self.WriteRow()
     self.WriteLine('CONTENTS', right=self.Tag(self.Slug('contents')))
-    for i, block in enumerate(self.module.sections.values()):
-      assert 'id' in block.locals
-      assert 'name' in block.locals
-      line = '%d. %s' % (i + 1, block.locals['name'])
-      slug = self.Slug(block.locals['id'])
-      self.WriteLine(line, indent=1, right=self.Link(slug), fill='.')
+    # We need to keep track of section numbering on a per-level basis
+    for index, block in self._EnumerateIndices(self.module.sections.values()):
+      self.WriteLine(
+          '%d. %s' % (index, block.locals['name']),
+          indent=2 * block.locals['level'] + 1,
+          right=self.Link(self.Slug(block.locals['id'])),
+          fill='.')
     self.WriteLine()
 
   def WriteChunk(self, chunk):
@@ -98,13 +119,6 @@ class Helpfile(object):
 
   def WriteLargeBlock(self, block):
     """Writes a large (function, command, etc.) type block."""
-    if not block.paragraphs:
-      warnings.warn(
-          'Undocumented {} {}'.format(
-              block.locals.get('type').lower(),
-              block.FullName()),
-          error.DocumentationWarning)
-      return
     assert 'usage' in block.locals
     self.WriteLine(
         # The leader='' makes it indent once on subsequent lines.
@@ -170,12 +184,15 @@ class Helpfile(object):
         width=self.WIDTH,
         initial_indent=(indent * self.TAB),
         subsequent_indent=((indent + 2) * self.TAB))
-    for line in wrapper.wrap(self.Expand(text, namespace)):
+    # wrap returns empty list for ''. See http://bugs.python.org/issue15510.
+    lines = wrapper.wrap(self.Expand(text, namespace)) or ['']
+    for line in lines:
       self.Print(line)
 
-  def Print(self, line, end='\n'):
+  def Print(self, line, end='\n', wide=False):
     """Outputs a line to the file."""
-    assert len(line) <= self.WIDTH
+    if not wide:
+      assert len(line) <= self.WIDTH
     if self.file is None:
       raise ValueError('Helpfile writer not yet given helpfile to write.')
     self.file.write(line + end)
@@ -185,7 +202,7 @@ class Helpfile(object):
     self.Print('=' * self.WIDTH)
 
   def WriteLine(self, text='', right='', indent=0, leader=None, fill=' '):
-    """Writes one line ouf output, breaking it up as needed."""
+    """Writes one line of output, breaking it up as needed."""
     if leader is not None:
       initial_indent = (indent * self.TAB) + leader
       subsequent_indent = (indent + 1) * self.TAB
@@ -198,6 +215,7 @@ class Helpfile(object):
         subsequent_indent=subsequent_indent,
         break_on_hyphens=False)
     lines = wrapper.wrap(text)
+    # wrap returns empty list for ''. See http://bugs.python.org/issue15510.
     lines = lines or ['']
     lastlen = len(lines[-1])
     rightlen = len(right)
@@ -251,8 +269,7 @@ class Helpfile(object):
       return self.Link(
           self.Slug(self.module.LookupTag(vimdoc.FLAG, element), ':'))
     elif inline == 'setting':
-      setting = element if element.startswith('g:') else 'g:' + element
-      return self.Link('g:' + self.module.LookupTag(vimdoc.SETTING, setting))
+      return self.Link(self.module.LookupTag(vimdoc.SETTING, element))
     elif inline == 'dict':
       return self.Link(self.Slug(self.module.LookupTag(
           vimdoc.DICTIONARY, element), '.'))

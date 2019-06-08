@@ -67,23 +67,19 @@ class BlockDirective(DocLine):
 
 
 class All(BlockDirective):
-  REGEX = regex.numbers_args
+  REGEX = regex.no_args
 
-  def Assign(self, numbers):
-    # @all blocks are one-indexed.
-    numbers = numbers or ''
-    self.blocks = [int(i) - 1 for i in regex.number_arg.findall(numbers)]
+  def Assign(self):
+    pass
 
   def Affect(self, blocks, selection):
-    if not self.blocks:
-      selection[:] = range(len(blocks))
-    else:
-      selection[:] = self.blocks
-    for i in selection:
-      if i >= len(blocks):
-        raise error.InvalidBlockNumber(i)
-      blocks[i].SetType(True)
+    selection[:] = range(len(blocks))
+    for block in blocks:
+      block.SetType(True)
     return ()
+
+  def Update(self, block):
+    pass
 
 
 class Author(BlockDirective):
@@ -152,7 +148,7 @@ class Dict(BlockDirective):
     if self.attribute:
       block.SetType(vimdoc.FUNCTION)
       block.Local(attribute=self.attribute)
-    # We can't set the dict type here because it may be set to Funtion type
+    # We can't set the dict type here because it may be set to Function type
     # later, and we don't want a type mismatch.
 
 
@@ -184,13 +180,45 @@ class Public(BlockDirective):
 class Section(BlockDirective):
   REGEX = regex.section_args
 
+  def __init__(self, args):
+    super(Section, self).__init__(args)
+
   def Assign(self, name, ident):
     self.name = name.replace('\\,', ',').replace('\\\\', '\\')
+
+    if ident is None:
+      # If omitted, it's the name in lowercase, with spaces converted to dashes.
+      ident = self.name.lower().replace(' ', '-')
     self.id = ident
 
   def Update(self, block):
     block.SetType(vimdoc.SECTION)
     block.Local(name=self.name, id=self.id)
+
+
+class ParentSection(BlockDirective):
+  REGEX = regex.parent_section_args
+
+  def Assign(self, name):
+    self.name = name.lower()
+
+  def Update(self, block):
+    block.SetParentSection(self.name)
+
+
+class Setting(BlockDirective):
+  REGEX = regex.one_arg
+
+  def Assign(self, name):
+    scope_match = regex.setting_scope.match(name)
+    # Assume global scope if no explicit scope given.
+    if scope_match is None:
+      name = 'g:' + name
+    self.name = name
+
+  def Update(self, block):
+    block.SetType(vimdoc.SETTING)
+    block.Local(name=self.name)
 
 
 class Standalone(BlockDirective):
@@ -296,7 +324,11 @@ class Header(BlockDirective):
     extra_opts = sep.join('[%s]' % o
                           for o in block.OptionalArgs()
                           if o not in self.opts)
-    return self.FillOut(block.FullName(), sep, extra_reqs, extra_opts)
+    usage = self.FillOut(block.FullName(), sep, extra_reqs, extra_opts)
+    # Command usage should have a ':' prefix before the name.
+    if block.locals.get('type') == vimdoc.COMMAND and not usage.startswith(':'):
+      usage = ':' + usage
+    return usage
 
   def FillOut(self, name, sep, extra_reqs, extra_opts):
     """Expands the usage line with the given arguments."""
@@ -366,9 +398,11 @@ BLOCK_DIRECTIVES = {
     'function': Function,
     'library': Library,
     'order': Order,
+    'parentsection': ParentSection,
     'private': Private,
     'public': Public,
     'section': Section,
+    'setting': Setting,
     'standalone': Standalone,
     'stylized': Stylized,
     'subsection': SubSection,

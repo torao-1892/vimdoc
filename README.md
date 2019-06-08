@@ -114,20 +114,33 @@ Available block directives include:
 - `@public` marks a function public. In most plugins, functions are private by
   default, though this default may be overridden on a per-plugin basis.
 - `@private` marks a function private.
-- `@section name [id]` allows you to write a new section for the helpfile.
-- `@order ...` allows you to define the order of the sections.
+- `@section name[, id]` allows you to write a new section for the helpfile. The
+  id will be a lowercased version of name if omitted.
+- `@parentsection id` defines the current section as a child of the given
+  section. Must be contained within a `@section` block.
+- `@subsection name` defines a subsection (heading) within a section block.
+- `@backmatter id` declares a block to be rendered at the end of the given
+  section.
+- `@order ...` allows you to define the order of the sections. Sections with a
+  `@parentsection` may not be included here.
 - `@dict name` (above blank lines) allows you to define a new dictionary.
 - `@dict dict.fn` (above a function) allows you to add a function to
   a dictionary.
 - `@usage ...` allows you to rename and reorder the arguments of a function or
   command.
+- `@all` denotes that the remainder of the block will be included in all usages
+  (in the case of multiple overloaded usages).
 - `@function ...` allows you to alter the function tag directly, for when @usage
   does not offer enough control.
 - `@command ...` allows you to alter the command tag directly, for when @usage
   does not offer enough control.
+- `@setting name` declares a setting (global or per-buffer configuration
+  variable).
 - `@default arg=value` describes the default value of an optional arg.
 - `@throws exception` describes the type of exceptions that a function or
   command may throw.
+- `@deprecated reason` marks a command or function as deprecated and excludes it
+  from the docs.
 
 The global directives (@stylized, @order, and @library) are all detected from
 inside a @section block (usually the Introduction section).
@@ -141,7 +154,7 @@ enclosed in parenthesis.
 - `@command(name)` generates a link to a command defined in the plugin.
 - `@flag(name)` generates a link to a flag defined in the plugin.
 - `@setting(name)` generates a link to a setting defined in the plugin.
-- `@section(name)` generates a link to a section defined in the plugin.
+- `@section(id)` generates a link to a section defined in the plugin.
 - `@dict(name)` generates a link to a dictionary defined in the plugin.
 - `@plugin(attr)` Outputs some plugin data, such as the name or author. `attr`
   must be one of `stylized`, `name`, or `author`. If the attr (and parenthesis)
@@ -179,6 +192,7 @@ Helpfile Structure
 
 The generated helpfile for a plugin has the following structure:
 
+```
 Header
 Table of Contents
 1. Introduction
@@ -189,6 +203,7 @@ Table of Contents
 7. Functions
 8. Mappings
 9. About
+```
 
 All of these (except Header and Table of Contents) are optional and predicated
 upon the comment blocks existing in the right places in the file. You may
@@ -221,6 +236,31 @@ The introductory comment block is used to populate this section.
 
 This section contains descriptions of all the flags and settings that were
 annotated by vimdoc comment blocks.
+
+Any global `let` command with a doc comment will automatically be detected as a
+setting:
+
+    ""
+    " Enable a thing.
+    let g:myplugin_enable_thing = 1
+
+You can use the `@setting` block directive to declare settings vimdoc doesn't
+recognize:
+
+    ""
+    " @setting g:myplugin_secret_number
+    " A secret number.
+    echo 'The number is' get(g:, 'myplugin_secret_number', b:changedtick)
+
+    ""
+    " @setting b:myplugin_enable_thing
+    " Enable a thing in the current buffer.
+
+Maktaba flags with doc comments are also automatically recognized:
+
+    ""
+    " Supported things.
+    call s:plugin.Flag('things', ['a', 'b'])
 
 #### Commands
 
@@ -293,13 +333,13 @@ more than one usage directive. Example:
     " Add {item} to {list} at {index}.
     " @usage {dict} {key} {value}
     " Set {dict} {key} to {value}.
-    " @usage
+    " @all
     " WARNING: Will launch the nuclear missiles.
 
 This will generate two docs for the command: one for list, one for dicts. An
-empty @usage directive denotes that the remainder of the block will be included
-in all usages. In the above example, the warning will be included in both the
-list and the dict version of the command docs.
+@all directive denotes that the remainder of the block will be included in all
+usages. In the above example, the warning will be included in both the list and
+the dict version of the command docs.
 
 #### Dictionaries
 

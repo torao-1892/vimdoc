@@ -35,7 +35,7 @@ def EnumerateStripNewlinesAndJoinContinuations(lines):
     line = line.rstrip('\n')
     if IsContinuation(line):
       if cached is None:
-        raise error.CannotContinue('No preceeding line.', i)
+        raise error.CannotContinue('No preceding line.', i)
       elif IsComment(cached) and not IsComment(line):
         raise error.CannotContinue('No comment to continue.', i)
       else:
@@ -51,10 +51,6 @@ def EnumerateStripNewlinesAndJoinContinuations(lines):
 def EnumerateParsedLines(lines):
   vimdoc_mode = False
   for i, line in EnumerateStripNewlinesAndJoinContinuations(lines):
-    # The intro chunk doesn't need the double-quote introduction (but leave
-    # explicit vimdoc leaders alone to be detected and stripped below).
-    if i == 0 and IsComment(line) and not regex.vimdoc_leader.match(line):
-      vimdoc_mode = True
     if not vimdoc_mode:
       if regex.vimdoc_leader.match(line):
         vimdoc_mode = True
@@ -98,11 +94,11 @@ def ParseCodeLine(line):
   smatch = regex.setting_line.match(line)
   if smatch:
     name, = smatch.groups()
-    return codeline.Setting(name)
+    return codeline.Setting('g:' + name)
   flagmatch = regex.flag_line.match(line)
   if flagmatch:
-    a, b = flagmatch.groups()
-    return codeline.Flag(a or b)
+    a, b, default = flagmatch.groups()
+    return codeline.Flag(a or b, default)
   return codeline.Unrecognized(line)
 
 

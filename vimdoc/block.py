@@ -14,9 +14,17 @@ class Block(object):
   They consist of a number of paragraphs and an optional header. The paragraphs
   can come in many types, including text, lists, or code. The block may also
   contain metadata statements specifying things like the plugin author, etc.
+
+  Args:
+    type: Block type, e.g. vim.SECTION or vim.FUNCTION.
+    is_secondary: Whether there are other blocks above this one that describe
+        the same item. Only primary blocks should have tags, not secondary
+        blocks.
+    is_default: Whether other blocks with the same type and tag should override
+        this one and prevent this block from showing up in the docs.
   """
 
-  def __init__(self, is_secondary=False):
+  def __init__(self, type=None, is_secondary=False, is_default=False):
     # May include:
     # deprecated (boolean)
     # dict (name)
@@ -24,9 +32,14 @@ class Block(object):
     # name (of section)
     # type (constant, e.g. vimdoc.FUNCTION)
     # id (of section, in section or backmatter)
+    # parent_id (in section)
+    # children (in section)
+    # level (in section, tracks nesting level)
     # namespace (of function)
     # attribute (of function in dict)
     self.locals = {}
+    if type is not None:
+      self.SetType(type)
     # Merged into module. May include:
     # author (string)
     # library (boolean)
@@ -41,6 +54,7 @@ class Block(object):
     self._optional_args = []
     self._closed = False
     self._is_secondary = is_secondary
+    self._is_default = is_default
 
   def AddLine(self, line):
     """Adds a line of text to the block. Paragraph type is auto-determined."""
@@ -86,8 +100,9 @@ class Block(object):
       self.paragraphs.Close()
     # Everything else is text.
     self.paragraphs.SetType(paragraph.TextParagraph)
-    # Lines ending in '>' enter code blocks.
-    if line.endswith('>'):
+    # Lines ending in '>' enter code blocks. Must have a space before if it if
+    # not on a line by itself.
+    if line == '>' or line.endswith(' >'):
       line = line[:-1].rstrip()
       if line:
         self.paragraphs.AddLine(line)
@@ -125,6 +140,12 @@ class Block(object):
     else:
       raise error.TypeConflict(ourtype, newtype)
 
+  def SetParentSection(self, parent_id):
+    """Sets the parent_id for blocks of type SECTION"""
+    if not (self.locals.get('type') == vimdoc.SECTION):
+      raise error.MisplacedParentSection(parent_id)
+    self.Local(parent_id=parent_id)
+
   def SetHeader(self, directive):
     """Sets the header handler."""
     if self.header:
@@ -138,7 +159,7 @@ class Block(object):
 
   def Default(self, arg, value):
     """Adds a line which sets the default value for an optional arg."""
-    # If you do "@default foo=[bar]" it's implied that [bar] preceeds [foo] in
+    # If you do "@default foo=[bar]" it's implied that [bar] precedes [foo] in
     # the argument list -- hence, we parse value before arg.
     self._ParseArgs(value)
     # The arg is assumed optional, since it can default to things.
@@ -194,7 +215,7 @@ class Block(object):
       if len(self._required_args) == len(sigargs):
         return self._required_args
       # We have no idea what they're doing. The function signature doesn't match
-      # the argumenst mentioned in the documentation.
+      # the arguments mentioned in the documentation.
       warnings.warn(
           'Arguments do not match function signature. '
           'Function signature arguments are {}. '
@@ -234,8 +255,6 @@ class Block(object):
       if 'exception' in self.locals:
         return 'ERROR({})'.format(self.locals['exception'] or self.LocalName())
       return self.locals.get('namespace', '') + self.LocalName()
-    if typ == vimdoc.SETTING:
-      return 'g:{}'.format(self.LocalName())
     return self.LocalName()
 
   def TagName(self):
@@ -250,6 +269,10 @@ class Block(object):
     if typ == vimdoc.COMMAND:
       return ':{}'.format(self.FullName())
     return self.FullName()
+
+  def IsDefault(self):
+    """Whether this block is a default only as opposed to an explicit block."""
+    return self._is_default
 
   def _ParseArgs(self, args):
     # Removes duplicates but retains order:

@@ -116,7 +116,39 @@ class NoSuchSection(BadStructure):
         'Section {} never defined.'.format(section))
 
 
+class MisplacedParentSection(BadStructure):
+  def __init__(self, section):
+    super(MisplacedParentSection, self).__init__(
+        'Parent section {} defined outside a @section block.'.format(section))
+
+
+class NoSuchParentSection(BadStructure):
+  def __init__(self, section, parent_id):
+    super(NoSuchParentSection, self).__init__(
+        ('Section {} has non-existent parent {}. '
+         'Try setting the id of the parent section explicitly.'
+        ).format(section, parent_id))
+
+
+class DuplicateSection(BadStructure):
+  def __init__(self, section):
+    super(DuplicateSection, self).__init__(
+        'Duplicate section {} defined.'.format(section))
+
+
+class DuplicateBackmatter(BadStructure):
+  def __init__(self, section):
+    super(DuplicateBackmatter, self).__init__(
+        'Duplicate backmatter defined for section {}.'.format(section))
+
+
 class NeglectedSections(BadStructure):
-  def __init__(self, sections):
+  def __init__(self, sections, order):
     super(NeglectedSections, self).__init__(
-        'Sections {} not included in ordering.'.format(sections))
+        'Sections {} not included in ordering {}.'.format(sections, order))
+
+
+class OrderedChildSections(BadStructure):
+  def __init__(self, section, order):
+    super(OrderedChildSections, self).__init__(
+        'Child section {} included in ordering {}.'.format(section, order))
